@@ -26,8 +26,31 @@ function refresh() {
   $("step1").classList.toggle("done", state.zips.length > 0);
   $("step2").classList.toggle("done", !!state.dir);
   $("start").disabled = state.running || !state.zips.length || !state.dir;
-  for (const id of ["pickZips", "pickDir", "zipPath", "dirPath"]) $(id).disabled = state.running;
+  for (const id of ["pickZips", "pickDir", "zipPath", "dirPath", "from", "to"]) $(id).disabled = state.running;
+  for (const b of document.querySelectorAll("#presets button")) b.disabled = state.running;
+  const r = getRange();
+  const invalid = r.from && r.to && r.from > r.to;
+  $("rangeError").hidden = !invalid;
+  if (invalid) $("start").disabled = true;
+  const fmt = (d) => d.split("-").reverse().join(".");
+  $("rangeInfo").textContent = !r.from && !r.to ? "Kein Zeitraum gewählt: Es wird alles aus dem Export gesichert."
+    : r.from && r.to ? `Gesichert werden nur Aufnahmen vom ${fmt(r.from)} bis ${fmt(r.to)}.`
+    : r.from ? `Gesichert werden nur Aufnahmen ab dem ${fmt(r.from)}.` : `Gesichert werden nur Aufnahmen bis zum ${fmt(r.to)}.`;
   $("cancel").hidden = !state.running;
+}
+const getRange = () => ({ from: $("from").value || null, to: $("to").value || null });
+const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function setupRange() {
+  const set = (a, b) => { $("from").value = a ? iso(a) : ""; $("to").value = b ? iso(b) : ""; refresh(); };
+  const now = new Date(), y = now.getFullYear(), m = now.getMonth();
+  const presets = {
+    lastMonth: () => set(new Date(y, m - 1, 1), new Date(y, m, 0)),
+    thisMonth: () => set(new Date(y, m, 1), new Date(y, m + 1, 0)),
+    sinceLastMonth: () => set(new Date(y, m - 1, 1), null),
+    all: () => set(null, null),
+  };
+  for (const b of document.querySelectorAll("#presets button")) b.onclick = presets[b.dataset.preset];
+  $("from").oninput = $("to").oninput = refresh;
 }
 const li = (text, cls) => { const e = document.createElement("li"); e.textContent = text; if (cls) e.className = cls; return e; };
 
@@ -63,6 +86,8 @@ function showResult(s, error, aborted) {
       [s.dateKept, "hatten bereits ein Aufnahmedatum"],
       [s.dateFolderOnly, local ? "Datum nur über Ordner und Dateidatum (Format ohne Datumsfeld)" : "Datum nur über den Ordner (Format ohne Datumsfeld)"],
       [s.noDate, "ohne erkennbares Datum (Ordner „Ohne Datum“)"],
+      [s.outOfRange, "außerhalb des gewählten Zeitraums – nicht gesichert"],
+      [s.noDateSkipped, "ohne erkennbares Datum – wegen der Zeitraum-Auswahl nicht gesichert"],
       [s.errors, "Fehler – diese Dateien wurden NICHT gesichert"],
     ].filter(([n], i) => n > 0 || i === 0);
     const title = aborted ? "Abgebrochen." : problems ? "Fertig, aber nicht alle Dateien konnten gesichert werden." : "Fertig – alles gesichert.";
@@ -86,7 +111,7 @@ window.addEventListener("beforeunload", (e) => { if (state.running) e.preventDef
 function setupBrowser() {
   if (!("showDirectoryPicker" in window)) {
     $("unsupported").hidden = false;
-    for (const id of ["step1", "step2", "step3"]) $(id).hidden = true;
+    for (const id of ["step1", "step2", "stepRange", "step3"]) $(id).hidden = true;
     return;
   }
   $("webHint").hidden = false;
@@ -118,6 +143,7 @@ function setupBrowser() {
       stats = await runBackup({
         zips: state.zips.map((f) => ({ name: f.name, blob: f })),
         sink: createBrowserSink(state.dir),
+        range: getRange(),
         signal: abort.signal,
         log: addLog,
         onProgress: (s) => { const now = Date.now(); if (now - last > 150) { last = now; showProgress(s); } },
@@ -147,7 +173,7 @@ function setupLocal() {
   $("dirPath").onchange = (e) => { state.dir = e.target.value.trim().replace(/^"|"$/g, "") || null; refresh(); };
   $("start").onclick = async () => {
     begin();
-    try { await api("/api/start", { zips: state.zips, target: state.dir }); }
+    try { await api("/api/start", { zips: state.zips, target: state.dir, range: getRange() }); }
     catch (e) { showResult(null, e.message); end(); }
   };
   $("cancel").onclick = () => api("/api/cancel", {}).catch(() => {});
@@ -165,5 +191,6 @@ function setupLocal() {
   poll();
 }
 
+setupRange();
 local ? setupLocal() : setupBrowser();
 refresh();

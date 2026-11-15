@@ -44,6 +44,8 @@ table.sum td:first-child { font-weight: 700; text-align:right; font-variant-nume
 details { margin-bottom: 14px; }
 details summary { cursor:pointer; font-weight:600; }
 details ol { padding-left: 22px; } details li { margin: 6px 0; }
+input[type=date] { font: inherit; padding: 7px 10px; border:1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); margin-left: 6px; }
+#presets button { padding: 6px 12px; font-size: .92rem; }
 input[type=text] { font: inherit; width:100%; padding: 8px 10px; border:1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); }
 a { color: var(--accent); }
 [hidden] { display:none !important; }
@@ -94,8 +96,25 @@ a { color: var(--accent); }
     <ul class="files" id="dirList"></ul>
   </section>
 
+  <section class="card" id="stepRange">
+    <h2><span class="num">3</span>Zeitraum festlegen <span class="hint" style="font-weight:400">(optional)</span></h2>
+    <p class="hint">Nur Fotos und Videos sichern, die in diesem Zeitraum aufgenommen wurden. Leer lassen, um alles aus dem Export zu sichern.</p>
+    <div class="row">
+      <label>Von <input type="date" id="from"></label>
+      <label>Bis <input type="date" id="to"></label>
+    </div>
+    <div class="row" id="presets">
+      <button data-preset="lastMonth">Letzter Monat</button>
+      <button data-preset="thisMonth">Dieser Monat</button>
+      <button data-preset="sinceLastMonth">Seit letztem Monat</button>
+      <button data-preset="all">Alles</button>
+    </div>
+    <p id="rangeInfo" class="hint"></p>
+    <p id="rangeError" class="hint" style="color:var(--err)" hidden>„Von“ liegt nach „Bis“ – bitte korrigieren.</p>
+  </section>
+
   <section class="card" id="step3">
-    <h2><span class="num">3</span>Sichern</h2>
+    <h2><span class="num">4</span>Sichern</h2>
     <div class="row">
       <button class="primary" id="start" disabled>Sicherung starten</button>
       <button id="cancel" hidden>Abbrechen</button>

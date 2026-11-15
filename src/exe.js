@@ -19,15 +19,17 @@ function checkTarget(dir) {
 // ---------- ohne Oberfläche ----------
 const args = process.argv.slice(2);
 if (args.includes("--zips") || args.includes("--ziel")) {
-  const zips = [], rest = [...args]; let target = null;
+  const zips = [], rest = [...args]; let target = null; const range = { from: null, to: null };
   while (rest.length) {
     const a = rest.shift();
     if (a === "--ziel") target = rest.shift();
+    else if (a === "--von") range.from = rest.shift();
+    else if (a === "--bis") range.to = rest.shift();
     else if (a !== "--zips") zips.push(a);
   }
   try {
     const stats = await runBackup({
-      zips: zipBlobs(zips), sink: createFsSink(checkTarget(target)),
+      zips: zipBlobs(zips), sink: createFsSink(checkTarget(target)), range,
       log: (level, text) => console.log(level === "info" ? text : `[${level}] ${text}`),
     });
     console.log(JSON.stringify(stats));
@@ -53,13 +55,13 @@ async function pick(kind) {
   return out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 }
 
-function start({ zips, target }) {
+function start({ zips, target, range }) {
   if (job.running) throw new Error("Es läuft bereits eine Sicherung.");
   const blobs = zipBlobs(zips || []);
   const sink = createFsSink(checkTarget(target));
   Object.assign(job, { running: true, finished: false, aborted: false, error: null, stats: newStats(), log: [], abort: new AbortController() });
   runBackup({
-    zips: blobs, sink, signal: job.abort.signal,
+    zips: blobs, sink, range, signal: job.abort.signal,
     log: (level, text) => job.log.push({ level, text }),
     onProgress: (s) => { job.stats = { ...s }; },
   }).then((s) => { job.stats = { ...s }; job.aborted = job.abort.signal.aborted; })

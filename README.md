@@ -14,7 +14,9 @@ Sortiert einen Google-Takeout-Export nach Jahr und Monat auf eine Festplatte und
    4. „Nächster Schritt“: Downloadlink per E-Mail, Dateityp **.zip**, Größe 50 GB. Häufigkeit: einmalig oder „Alle 2 Monate für 1 Jahr“.
    5. „Export erstellen“. Google schickt eine E-Mail mit dem Download-Link.
 2. **ZIP-Dateien herunterladen**, nicht entpacken.
-3. **WebApp oder Programm öffnen**, ZIP-Dateien und Zielordner auswählen, „Sicherung starten“.
+3. **WebApp oder Programm öffnen**, ZIP-Dateien und Zielordner auswählen, auf Wunsch einen Zeitraum festlegen, „Sicherung starten“.
+
+Mit dem Zeitraum (Von/Bis) werden nur Aufnahmen aus diesen Tagen gesichert, z. B. 01.10. bis 31.10. aus einem Jahresexport. Die ZIP-Datei von Google muss trotzdem vollständig heruntergeladen werden; der Zeitraum bestimmt nur, was auf der Festplatte landet. Dateien ohne erkennbares Datum werden bei gesetztem Zeitraum nicht gesichert und in der Zusammenfassung gezählt.
 
 Immer denselben Zielordner verwenden. Darin entstehen Ordner wie `2026\03 März`, dazu `Ohne Datum` für Dateien ohne erkennbares Datum und die Datei `_sicherung-index.json` (Liste der bereits gesicherten Dateien – bitte nicht löschen).
 
@@ -52,5 +54,5 @@ bun install
 bun test            # Tests
 bun run build       # dist/index.html
 bun run start       # Programm lokal starten
-bun src/exe.js --zips takeout-001.zip takeout-002.zip --ziel E:\Fotos   # ohne Oberfläche
+bun src/exe.js --zips takeout-001.zip takeout-002.zip --ziel E:\Fotos --von 2025-10-01 --bis 2025-10-31   # ohne Oberfläche, Zeitraum optional
 ```

@@ -19,7 +19,7 @@ const sanitize = (name) => name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/
 
 export function newStats() {
   return { total: 0, done: 0, bytesTotal: 0, bytesDone: 0, copied: 0, skipped: 0, dateWritten: 0,
-    dateKept: 0, dateFolderOnly: 0, noDate: 0, errors: 0, current: "" };
+    dateKept: 0, dateFolderOnly: 0, noDate: 0, outOfRange: 0, noDateSkipped: 0, errors: 0, current: "" };
 }
 
 /**
@@ -28,9 +28,27 @@ export function newStats() {
  * @param onProgress (stats) => void
  * @param log   (level: "info"|"warn"|"error", text) => void
  * @param signal AbortSignal
+ * @param range  optional { from: "JJJJ-MM-TT"|null, to: "JJJJ-MM-TT"|null } – nur Dateien mit
+ *               Aufnahmedatum in diesem Zeitraum (beide Tage eingeschlossen) sichern
  */
-export async function runBackup({ zips, sink, onProgress = () => {}, log = () => {}, signal }) {
+export async function runBackup({ zips, sink, onProgress = () => {}, log = () => {}, signal, range }) {
   const stats = newStats();
+  const dayKey = (str) => (str ? Number(str.replaceAll("-", "")) : null);
+  const from = dayKey(range?.from), to = dayKey(range?.to);
+  const filtering = from != null || to != null;
+  if (from != null && to != null && from > to) throw new Error("Der Zeitraum ist ungültig: „Von“ liegt nach „Bis“.");
+  // true = Datei liegt außerhalb des gewählten Zeitraums und wird nicht gesichert
+  const excluded = (date, fileName) => {
+    if (!filtering) return false;
+    if (!date) {
+      stats.noDateSkipped++;
+      log("warn", `${fileName}: kein Datum erkennbar – wegen der Zeitraum-Auswahl nicht gesichert.`);
+      return true;
+    }
+    const key = date.y * 10000 + date.m * 100 + date.d;
+    if ((from != null && key < from) || (to != null && key > to)) { stats.outOfRange++; return true; }
+    return false;
+  };
   const sidecars = new SidecarIndex();
   const media = [];
   const readers = [];
@@ -117,6 +135,7 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
         const fb = await fallback();
         const res = processJpeg(original, () => fb.date);
         const date = res.existing || fb.date;
+        if (excluded(date, fileName)) return;
         const path = await freePath(folderFor(date), safeName, res.bytes.length);
         if (!path) { index[key] = lastDuplicate; stats.skipped++; return; }
         await sink.writeBytes(path, res.bytes, date && toJsDate(date));
@@ -126,6 +145,7 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
       }
 
       const { date } = await fallback();
+      if (excluded(date, fileName)) return;
       const path = await freePath(folderFor(date), safeName, entry.uncompressedSize);
       if (!path) { index[key] = lastDuplicate; stats.skipped++; return; }
       const scanner = VIDEO.has(ext) ? new Mp4Scanner() : null;

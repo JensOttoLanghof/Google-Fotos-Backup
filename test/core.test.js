@@ -82,3 +82,21 @@ test("kompletter Durchlauf inkl. Wiederholung", async () => {
   expect(third.errors).toBe(0);
   fs.rmSync(tmp, { recursive: true });
 });
+
+test("Zeitraum-Auswahl sichert nur passende Dateien, der Rest bleibt für später", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gfb-"));
+  const zip = await makeZip(sampleFiles());
+  const run = (range) => runBackup({ zips: [{ name: "takeout.zip", blob: zip }], sink: createFsSink(tmp), range });
+  const feb = await run({ from: "2024-02-01", to: "2024-03-02" });
+  expect(list(tmp)).toEqual(["2024/02 Februar/VID-20240210-WA0007.mp4", "2024/03 März/DSC0001.jpg", "_sicherung-index.json"]);
+  expect(feb).toMatchObject({ copied: 2, outOfRange: 6, noDateSkipped: 1, skipped: 0, errors: 0 });
+  // danach offenes Ende: ab Juni
+  const late = await run({ from: "2024-06-01", to: null });
+  expect(late).toMatchObject({ copied: 2, outOfRange: 4, skipped: 2 });
+  // ohne Zeitraum kommt der Rest nach
+  const all = await run(undefined);
+  expect(all).toMatchObject({ copied: 4, skipped: 5, outOfRange: 0 });
+  expect(list(tmp).length).toBe(9);
+  await expect(run({ from: "2024-05-01", to: "2024-04-01" })).rejects.toThrow("Zeitraum");
+  fs.rmSync(tmp, { recursive: true });
+});
