@@ -115,7 +115,7 @@ test("einzelne Dateien ohne ZIP: Datum aus dem Namen", async () => {
   expect(list(tmp)).toEqual([
     "2023/08 August/IMG-20230812-WA0005.jpg", "2023/08 August/VID-20230813-WA0001.mp4",
     "2023/09 September/Screenshot_20230901-080910.png", "_sicherung-index.json"]);
-  expect(stats).toMatchObject({ total: 3, copied: 3, dateWritten: 2, dateFolderOnly: 1, errors: 0 });
+  expect(stats).toMatchObject({ total: 3, copied: 3, dateWritten: 2, dateFolderOnly: 1, errors: 0 }); // Mini-PNG im Test ist kein echtes PNG
   expect(exifDate(path.join(tmp, "2023/08 August/IMG-20230812-WA0005.jpg"))).toBe("2023:08:12 12:00:00");
   expect(mvhd(path.join(tmp, "2023/08 August/VID-20230813-WA0001.mp4")).getTime()).toBe(ts(2023, 8, 13, 12) * 1000);
   expect(fs.statSync(path.join(tmp, "2023/09 September/Screenshot_20230901-080910.png")).mtime.getTime()).toBe(ts(2023, 9, 1, 8, 9, 10) * 1000);
@@ -142,4 +142,17 @@ test("letzte Sicherung wird im Zielordner vermerkt", async () => {
   fs.utimesSync(file, new Date("2026-11-15T12:20:00Z"), new Date("2026-11-15T12:20:00Z"));
   expect(await readLastBackup(sink)).toBe("2026-11-15T12:20:00.000Z");
   fs.rmSync(tmp, { recursive: true });
+});
+
+test("PNG bekommt das Datum als Textfeld und EXIF, bleibt gültig und wird nicht doppelt beschrieben", async () => {
+  const { processPng } = await import("../src/media.js");
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+  const res = processPng(png, { y: 2025, m: 2, d: 3, H: 12, M: 45, S: 26 });
+  expect(res.written).toBe(true);
+  const text = Buffer.from(res.bytes).toString("latin1");
+  expect(text).toContain("tEXtCreation Time\0" + "2025:02:03 12:45:26");
+  expect(text).toContain("eXIf");
+  expect(text.indexOf("eXIf")).toBeLessThan(text.indexOf("IDAT"));
+  expect(processPng(res.bytes, { y: 2020, m: 1, d: 1, H: 0, M: 0, S: 0 }).written).toBe(false);
+  expect(processPng(new Uint8Array(50), { y: 2020, m: 1, d: 1, H: 0, M: 0, S: 0 }).written).toBe(false);
 });

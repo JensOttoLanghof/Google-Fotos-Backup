@@ -2,7 +2,7 @@
 // Läuft unverändert im Browser und im Windows-Programm; Dateizugriffe gehen über "sink".
 import { ZipReader, BlobReader, Uint8ArrayWriter, TextWriter, configure } from "@zip.js/zip.js";
 import { dateFromName, dateFromJson, combine, folderFor, toJsDate } from "./dates.js";
-import { processJpeg, Mp4Scanner, parseMoov, moovPatches } from "./media.js";
+import { processJpeg, processPng, Mp4Scanner, parseMoov, moovPatches } from "./media.js";
 import { SidecarIndex } from "./sidecar.js";
 
 configure({ useWebWorkers: false });
@@ -163,10 +163,10 @@ export async function runBackup({ zips = [], files = [], sink, onProgress = () =
       const fallback = async () => combine(nameDate, nameDate && nameDate.hasTime ? null : await getJsonDate());
       const safeName = sanitize(fileName);
 
-      if (JPEG.has(ext) && fileSize <= MAX_JPEG_IN_MEMORY) {
+      if ((JPEG.has(ext) || ext === "png") && fileSize <= MAX_JPEG_IN_MEMORY) {
         const original = await readBytes();
         const fb = await fallback();
-        const res = processJpeg(original, () => fb.date);
+        const res = JPEG.has(ext) ? processJpeg(original, () => fb.date) : processPng(original, fb.date);
         const date = res.existing || fb.date;
         if (excluded(date, fileName)) return;
         const path = await freePath(folderFor(date), safeName, res.bytes.length);

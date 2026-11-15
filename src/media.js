@@ -51,6 +51,68 @@ export function processJpeg(bytes, getFallback) {
   }
 }
 
+// ---------- PNG ----------
+
+const PNG_SIG = [137, 80, 78, 71, 13, 10, 26, 10];
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) {
+  let c = 0xffffffff;
+  for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+function pngChunk(type, data) {
+  const out = new Uint8Array(12 + data.length), v = new DataView(out.buffer);
+  v.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  v.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+
+export const isPng = (b) => b.length > 33 && PNG_SIG.every((x, i) => b[i] === x);
+
+/**
+ * Schreibt das Datum in eine PNG-Datei, falls sie noch keins enthält:
+ * als Textfeld "Creation Time" (liest der Windows-Explorer als Aufnahmedatum)
+ * und als EXIF-Block (lesen u. a. Google Fotos und andere Programme).
+ * Ergebnis: { bytes, written }
+ */
+export function processPng(bytes, date) {
+  if (!date || !isPng(bytes)) return { bytes, written: false };
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const KEY = "Creation Time";
+  let p = 8, first = true;
+  while (p + 12 <= bytes.length) {
+    const len = v.getUint32(p);
+    const type = String.fromCharCode(bytes[p + 4], bytes[p + 5], bytes[p + 6], bytes[p + 7]);
+    if (first && (type !== "IHDR" || len !== 13)) return { bytes, written: false };
+    first = false;
+    if (type === "eXIf") return { bytes, written: false };
+    if ((type === "tEXt" || type === "iTXt") && len > KEY.length &&
+        String.fromCharCode(...bytes.subarray(p + 8, p + 8 + KEY.length + 1)) === KEY + "\0") return { bytes, written: false };
+    p += 12 + len;
+  }
+  if (first) return { bytes, written: false };
+  const stamp = toExif(date);
+  const text = pngChunk("tEXt", fromBinary(KEY + "\0" + stamp));
+  let exif = new Uint8Array(0);
+  try {
+    const dump = piexif.dump({ "0th": { [TAG_DATETIME]: stamp }, Exif: { [TAG_ORIGINAL]: stamp, [TAG_DIGITIZED]: stamp } });
+    exif = pngChunk("eXIf", fromBinary(dump.slice(6))); // ohne den JPEG-Vorspann "Exif\0\0"
+  } catch { /* dann nur das Textfeld */ }
+  const at = 33; // direkt hinter dem IHDR-Block
+  const out = new Uint8Array(bytes.length + text.length + exif.length);
+  out.set(bytes.subarray(0, at));
+  out.set(exif, at);
+  out.set(text, at + exif.length);
+  out.set(bytes.subarray(at), at + exif.length + text.length);
+  return { bytes: out, written: true };
+}
+
 // ---------- MP4 / MOV ----------
 
 const EPOCH_1904 = 2082844800;
