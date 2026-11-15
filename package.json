@@ -1,0 +1,15 @@
+{
+  "name": "google-fotos-backup",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bun scripts/build.js",
+    "test": "bun test",
+    "start": "bun scripts/build.js && bun src/exe.js"
+  },
+  "devDependencies": {
+    "@zip.js/zip.js": "^2.7.0",
+    "piexifjs": "^1.0.6"
+  }
+}

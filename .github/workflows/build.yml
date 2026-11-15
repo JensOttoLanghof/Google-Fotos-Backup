@@ -1,0 +1,59 @@
+name: Bauen und veröffentlichen
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun test
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  webapp:
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
+  exe:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: bun build --compile src/exe.js --outfile Fotos-Backup.exe
+      - name: Funktionstest der fertigen exe
+        shell: bash
+        run: |
+          bun scripts/smoke.js make smoke
+          ./Fotos-Backup.exe --zips smoke/takeout.zip --ziel smoke/ziel
+          bun scripts/smoke.js check smoke
+      - name: Release anlegen
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "v1.0.${{ github.run_number }}" Fotos-Backup.exe --title "Fotos-Backup v1.0.${{ github.run_number }}" --notes "Automatisch gebaut aus ${{ github.sha }}." --latest
