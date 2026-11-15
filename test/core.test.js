@@ -5,7 +5,7 @@ import path from "node:path";
 import piexif from "piexifjs";
 import { runBackup } from "../src/core.js";
 import { createFsSink } from "../src/sink-fs.js";
-import { dateFromName } from "../src/dates.js";
+import { dateFromName, toJsDate } from "../src/dates.js";
 import { parseMoov, Mp4Scanner } from "../src/media.js";
 import { SidecarIndex } from "../src/sidecar.js";
 import { makeZip, sampleFiles, ts } from "./fixtures.js";
@@ -20,7 +20,8 @@ const list = (dir) => fs.readdirSync(dir, { recursive: true }).filter((f) => fs.
 test("Datum aus Dateinamen", () => {
   expect(dateFromName("IMG-20240115-WA0001.jpg")).toMatchObject({ y: 2024, m: 1, d: 15, hasTime: false });
   expect(dateFromName("IMG_20231224_183000.jpg")).toMatchObject({ y: 2023, m: 12, d: 24, H: 18, M: 30, S: 0 });
-  expect(dateFromName("PXL_20220501_091500123.mp4")).toMatchObject({ y: 2022, m: 5, d: 1, H: 9, M: 15 });
+  // Pixel-Namen sind Weltzeit: 31.01. 23:30 UTC ist in Deutschland schon der 01.02. 00:30
+  expect(toJsDate(dateFromName("PXL_20250131_233000123.mp4")).getTime()).toBe(Date.UTC(2025, 0, 31, 23, 30, 0));
   expect(dateFromName("WhatsApp Image 2021-03-04 at 17.05.09.jpeg")).toMatchObject({ y: 2021, m: 3, d: 4, H: 17, M: 5, S: 9 });
   expect(dateFromName("Screenshot_20240707-101112.png")).toMatchObject({ y: 2024, m: 7, d: 7, H: 10 });
   expect(dateFromName("IMG_1234.jpg")).toBeNull();

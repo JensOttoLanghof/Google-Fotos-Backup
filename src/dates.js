@@ -29,7 +29,11 @@ export function dateFromName(name) {
   m = n.match(/(?<!\d)((?:19|20)\d{2})(\d{2})(\d{2})[_\- ]?(\d{2})(\d{2})(\d{2})/);
   if (m) {
     const v = m.slice(1).map(Number);
-    if (valid(...v)) return { y: v[0], m: v[1], d: v[2], H: v[3], M: v[4], S: v[5], hasTime: true };
+    if (valid(...v)) {
+      // Pixel-Kameras (PXL_…) schreiben die Uhrzeit in Weltzeit (UTC) in den Namen.
+      if (/^PXL_/i.test(n)) return fromJsDate(new Date(Date.UTC(v[0], v[1] - 1, v[2], v[3], v[4], v[5])));
+      return { y: v[0], m: v[1], d: v[2], H: v[3], M: v[4], S: v[5], hasTime: true };
+    }
   }
   // 2024-01-15 at 12.34.56 / 2024-01-15-12-34-56 / 2024-01-15 123456
   m = n.match(/(?<!\d)((?:19|20)\d{2})[-_.](\d{2})[-_.](\d{2})(?:[ _\-.]|at|um)*(\d{2})[.\-:_h]?(\d{2})[.\-:_m]?(\d{2})/);
