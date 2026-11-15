@@ -23,7 +23,8 @@ export function newStats() {
 }
 
 /**
- * @param zips  [{ name, blob }]
+ * @param zips  [{ name, blob }] Takeout-ZIP-Dateien
+ * @param files [{ name, blob }] einzelne Fotos/Videos ohne Takeout
  * @param sink  { size, writeBytes, openStream, readText, writeText }
  * @param onProgress (stats) => void
  * @param log   (level: "info"|"warn"|"error", text) => void
@@ -31,7 +32,7 @@ export function newStats() {
  * @param range  optional { from: "JJJJ-MM-TT"|null, to: "JJJJ-MM-TT"|null } – nur Dateien mit
  *               Aufnahmedatum in diesem Zeitraum (beide Tage eingeschlossen) sichern
  */
-export async function runBackup({ zips, sink, onProgress = () => {}, log = () => {}, signal, range }) {
+export async function runBackup({ zips = [], files = [], sink, onProgress = () => {}, log = () => {}, signal, range }) {
   const stats = newStats();
   const dayKey = (str) => (str ? Number(str.replaceAll("-", "")) : null);
   const from = dayKey(range?.from), to = dayKey(range?.to);
@@ -70,12 +71,30 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
         if (ext === "json") { sidecars.add(dir, fileName, entry); continue; }
         if (IGNORE.has(ext) || !fileName) continue;
         if (TRASH.has((parts[parts.length - 1] || "").toLowerCase())) continue;
-        media.push({ entry, dir, fileName, ext });
+        media.push({
+          dir, fileName, ext, size: entry.uncompressedSize,
+          key: `${entry.signature >>> 0}-${entry.uncompressedSize}`,
+          readBytes: () => entry.getData(new Uint8ArrayWriter()),
+          pipeTo: (writable) => entry.getData(writable, { signal }),
+        });
         stats.bytesTotal += entry.uncompressedSize;
       }
     }
+    // Einzelne Fotos/Videos ohne Takeout: Datum kommt aus der Datei selbst oder dem Namen.
+    for (const file of files) {
+      const fileName = file.name.split(/[\\/]/).pop();
+      const ext = extOf(fileName);
+      if (IGNORE.has(ext) || ext === "json" || ext === "zip") { log("warn", `${fileName}: kein Foto oder Video, übersprungen.`); continue; }
+      media.push({
+        dir: null, fileName, ext, size: file.blob.size,
+        key: `datei-${fileName}-${file.blob.size}`,
+        readBytes: async () => new Uint8Array(await file.blob.arrayBuffer()),
+        pipeTo: (writable) => file.blob.stream().pipeTo(writable, { signal }),
+      });
+      stats.bytesTotal += file.blob.size;
+    }
     stats.total = media.length;
-    if (!media.length) throw new Error("In den ausgewählten ZIP-Dateien wurden keine Fotos oder Videos gefunden.");
+    if (!media.length) throw new Error("In der Auswahl wurden keine Fotos oder Videos gefunden.");
     log("info", `${media.length} Fotos und Videos gefunden.`);
     onProgress(stats);
 
@@ -104,7 +123,7 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
         }
       }
       stats.done++;
-      stats.bytesDone += item.entry.uncompressedSize;
+      stats.bytesDone += item.size;
       if (++sinceSave >= 200) { sinceSave = 0; await saveIndex(); }
     }
     await saveIndex();
@@ -112,15 +131,14 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
     onProgress(stats);
     return stats;
 
-    async function handle({ entry, dir, fileName, ext }) {
-      const key = `${entry.signature >>> 0}-${entry.uncompressedSize}`;
+    async function handle({ dir, fileName, ext, size: fileSize, key, readBytes, pipeTo }) {
       if (index[key] && (await sink.size(index[key])) != null) { stats.skipped++; return; }
 
       let jsonDate; // undefined = noch nicht gelesen
       const getJsonDate = async () => {
         if (jsonDate !== undefined) return jsonDate;
         jsonDate = null;
-        const side = sidecars.find(dir, fileName);
+        const side = dir == null ? null : sidecars.find(dir, fileName);
         if (side) {
           try { jsonDate = dateFromJson(JSON.parse(await side.getData(new TextWriter()))); } catch { /* ohne JSON weiter */ }
         }
@@ -130,8 +148,8 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
       const fallback = async () => combine(nameDate, nameDate && nameDate.hasTime ? null : await getJsonDate());
       const safeName = sanitize(fileName);
 
-      if (JPEG.has(ext) && entry.uncompressedSize <= MAX_JPEG_IN_MEMORY) {
-        const original = await entry.getData(new Uint8ArrayWriter());
+      if (JPEG.has(ext) && fileSize <= MAX_JPEG_IN_MEMORY) {
+        const original = await readBytes();
         const fb = await fallback();
         const res = processJpeg(original, () => fb.date);
         const date = res.existing || fb.date;
@@ -146,15 +164,15 @@ export async function runBackup({ zips, sink, onProgress = () => {}, log = () =>
 
       const { date } = await fallback();
       if (excluded(date, fileName)) return;
-      const path = await freePath(folderFor(date), safeName, entry.uncompressedSize);
+      const path = await freePath(folderFor(date), safeName, fileSize);
       if (!path) { index[key] = lastDuplicate; stats.skipped++; return; }
       const scanner = VIDEO.has(ext) ? new Mp4Scanner() : null;
       const out = await sink.openStream(path);
       let outcome = "folder";
       try {
-        await entry.getData(new WritableStream({
+        await pipeTo(new WritableStream({
           async write(chunk) { scanner?.push(chunk); await out.write(chunk); },
-        }), { signal });
+        }));
         if (scanner?.moov) {
           const { created, fields } = parseMoov(scanner.moov);
           const target = date && toJsDate(date);

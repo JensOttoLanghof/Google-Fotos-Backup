@@ -6,10 +6,15 @@ import page from "./generated-page.js";
 import { runBackup, newStats } from "./core.js";
 import { createFsSink } from "./sink-fs.js";
 
-const zipBlobs = (paths) => paths.map((p) => {
-  if (!fs.existsSync(p) || !fs.statSync(p).isFile()) throw new Error(`ZIP-Datei nicht gefunden: ${p}`);
-  return { name: p.split(/[\\/]/).pop(), blob: Bun.file(p) };
-});
+// Pfade in Takeout-ZIPs und einzelne Fotos/Videos aufteilen.
+function inputs(paths) {
+  const zips = [], files = [];
+  for (const p of paths) {
+    if (!fs.existsSync(p) || !fs.statSync(p).isFile()) throw new Error(`Datei nicht gefunden: ${p}`);
+    (/\.zip$/i.test(p) ? zips : files).push({ name: p.split(/[\\/]/).pop(), blob: Bun.file(p) });
+  }
+  return { zips, files };
+}
 function checkTarget(dir) {
   if (!dir) throw new Error("Kein Zielordner angegeben.");
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) throw new Error(`Zielordner nicht gefunden: ${dir}`);
@@ -18,18 +23,18 @@ function checkTarget(dir) {
 
 // ---------- ohne Oberfläche ----------
 const args = process.argv.slice(2);
-if (args.includes("--zips") || args.includes("--ziel")) {
+if (args.includes("--zips") || args.includes("--dateien") || args.includes("--ziel")) {
   const zips = [], rest = [...args]; let target = null; const range = { from: null, to: null };
   while (rest.length) {
     const a = rest.shift();
     if (a === "--ziel") target = rest.shift();
     else if (a === "--von") range.from = rest.shift();
     else if (a === "--bis") range.to = rest.shift();
-    else if (a !== "--zips") zips.push(a);
+    else if (a !== "--zips" && a !== "--dateien") zips.push(a);
   }
   try {
     const stats = await runBackup({
-      zips: zipBlobs(zips), sink: createFsSink(checkTarget(target)), range,
+      ...inputs(zips), sink: createFsSink(checkTarget(target)), range,
       log: (level, text) => console.log(level === "info" ? text : `[${level}] ${text}`),
     });
     console.log(JSON.stringify(stats));
@@ -47,7 +52,7 @@ async function pick(kind) {
   if (process.platform !== "win32") throw new Error("Auswahlfenster gibt es nur unter Windows.");
   const common = "Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $f = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; Opacity=0}; $f.Show(); $f.Activate();";
   const script = kind === "zips"
-    ? `${common} $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect=$true; $d.Title='Takeout-ZIP-Dateien auswählen'; $d.Filter='ZIP-Dateien (*.zip)|*.zip'; if ($d.ShowDialog($f) -eq 'OK') { $d.FileNames -join [char]10 }`
+    ? `${common} $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Multiselect=$true; $d.Title='Takeout-ZIP-Dateien oder einzelne Fotos und Videos auswählen'; $d.Filter='Takeout-ZIP, Fotos und Videos|*.zip;*.jpg;*.jpeg;*.png;*.gif;*.webp;*.heic;*.mp4;*.mov;*.m4v;*.3gp|Alle Dateien (*.*)|*.*'; if ($d.ShowDialog($f) -eq 'OK') { $d.FileNames -join [char]10 }`
     : `${common} $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Zielordner für die Fotos auswählen'; if ($d.ShowDialog($f) -eq 'OK') { $d.SelectedPath }`;
   const proc = Bun.spawn(["powershell", "-NoProfile", "-STA", "-Command", script], { stdout: "pipe", stderr: "pipe" });
   const out = await new Response(proc.stdout).text();
@@ -57,11 +62,11 @@ async function pick(kind) {
 
 function start({ zips, target, range }) {
   if (job.running) throw new Error("Es läuft bereits eine Sicherung.");
-  const blobs = zipBlobs(zips || []);
+  const input = inputs(zips || []);
   const sink = createFsSink(checkTarget(target));
   Object.assign(job, { running: true, finished: false, aborted: false, error: null, stats: newStats(), log: [], abort: new AbortController() });
   runBackup({
-    zips: blobs, sink, range, signal: job.abort.signal,
+    ...input, sink, range, signal: job.abort.signal,
     log: (level, text) => job.log.push({ level, text }),
     onProgress: (s) => { job.stats = { ...s }; },
   }).then((s) => { job.stats = { ...s }; job.aborted = job.abort.signal.aborted; })

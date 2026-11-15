@@ -21,7 +21,14 @@ const api = async (path, body) => {
 };
 
 function refresh() {
-  $("zipList").replaceChildren(...state.zips.map((z) => li(local ? z : `${z.name} (${gb(z.size)})`)));
+  const isZip = (z) => /\.zip$/i.test(local ? z : z.name);
+  const loose = state.zips.filter((z) => !isZip(z));
+  const items = state.zips.filter(isZip).map((z) => li(local ? z : `${z.name} (${gb(z.size)})`));
+  if (loose.length) {
+    const names = loose.slice(0, 3).map((z) => (local ? z.split(/[\\/]/).pop() : z.name)).join(", ");
+    items.push(li(`${nf.format(loose.length)} einzelne${loose.length === 1 ? " Datei" : " Dateien"}: ${names}${loose.length > 3 ? " …" : ""}`));
+  }
+  $("zipList").replaceChildren(...items);
   $("dirList").replaceChildren(...(state.dir ? [li(local ? state.dir : state.dir.name)] : []));
   $("step1").classList.toggle("done", state.zips.length > 0);
   $("step2").classList.toggle("done", !!state.dir);
@@ -67,7 +74,7 @@ function showProgress(s) {
   $("barFill").style.width = pct.toFixed(1) + "%";
   $("progressText").textContent = s.total
     ? `${nf.format(s.done)} von ${nf.format(s.total)} Dateien · ${gb(s.bytesDone)} von ${gb(s.bytesTotal)}${s.current ? " · " + s.current : ""}`
-    : "ZIP-Dateien werden gelesen …";
+    : "Dateien werden gelesen …";
 }
 
 function showResult(s, error, aborted) {
@@ -118,7 +125,7 @@ function setupBrowser() {
   $("drop").hidden = false;
   const addFiles = (files) => {
     for (const f of files) {
-      if (!/\.zip$/i.test(f.name)) { alert(`„${f.name}“ ist keine ZIP-Datei. Bitte beim Export den Dateityp .zip wählen.`); continue; }
+      if (/\.(tgz|gz|tar)$/i.test(f.name)) { alert(`„${f.name}“ kann nicht gelesen werden. Bitte beim Export den Dateityp .zip wählen.`); continue; }
       if (!state.zips.some((z) => z.name === f.name && z.size === f.size)) state.zips.push(f);
     }
     refresh();
@@ -141,7 +148,8 @@ function setupBrowser() {
     let last = 0, stats = null;
     try {
       stats = await runBackup({
-        zips: state.zips.map((f) => ({ name: f.name, blob: f })),
+        zips: state.zips.filter((f) => /\.zip$/i.test(f.name)).map((f) => ({ name: f.name, blob: f })),
+        files: state.zips.filter((f) => !/\.zip$/i.test(f.name)).map((f) => ({ name: f.name, blob: f })),
         sink: createBrowserSink(state.dir),
         range: getRange(),
         signal: abort.signal,

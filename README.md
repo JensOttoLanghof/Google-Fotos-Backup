@@ -20,6 +20,10 @@ Mit dem Zeitraum (Von/Bis) werden nur Aufnahmen aus diesen Tagen gesichert, z. B
 
 Immer denselben Zielordner verwenden. Darin entstehen Ordner wie `2026\03 März`, dazu `Ohne Datum` für Dateien ohne erkennbares Datum und die Datei `_sicherung-index.json` (Liste der bereits gesicherten Dateien – bitte nicht löschen).
 
+## Einzelne Fotos und Videos ohne Takeout
+
+Im ersten Schritt lassen sich statt (oder zusätzlich zu) ZIP-Dateien auch einzelne Fotos und Videos auswählen, beliebig viele auf einmal. Das Datum wird aus dem Dateinamen gelesen und in die Datei geschrieben. Die Originale bleiben unverändert; die korrigierten Kopien landen einsortiert im Zielordner.
+
 ## Woher das Datum kommt
 
 | Fall | Aufnahmedatum |

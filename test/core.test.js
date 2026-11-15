@@ -8,7 +8,7 @@ import { createFsSink } from "../src/sink-fs.js";
 import { dateFromName, toJsDate } from "../src/dates.js";
 import { parseMoov, Mp4Scanner } from "../src/media.js";
 import { SidecarIndex } from "../src/sidecar.js";
-import { makeZip, sampleFiles, ts } from "./fixtures.js";
+import { makeZip, sampleFiles, ts, TINY_JPEG, tinyMp4 } from "./fixtures.js";
 
 const exifDate = (file) => piexif.load(fs.readFileSync(file).toString("latin1")).Exif[36867];
 const mvhd = (file) => {
@@ -99,5 +99,26 @@ test("Zeitraum-Auswahl sichert nur passende Dateien, der Rest bleibt für späte
   expect(all).toMatchObject({ copied: 4, skipped: 5, outOfRange: 0 });
   expect(list(tmp).length).toBe(9);
   await expect(run({ from: "2024-05-01", to: "2024-04-01" })).rejects.toThrow("Zeitraum");
+  fs.rmSync(tmp, { recursive: true });
+});
+
+test("einzelne Dateien ohne ZIP: Datum aus dem Namen", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gfb-"));
+  const files = [
+    { name: "IMG-20230812-WA0005.jpg", blob: new Blob([TINY_JPEG]) },
+    { name: "C:\\Bilder\\VID-20230813-WA0001.mp4", blob: new Blob([tinyMp4({ moovLast: true })]) },
+    { name: "Screenshot_20230901-080910.png", blob: new Blob([new Uint8Array([137, 80, 78, 71])]) },
+    { name: "notiz.txt", blob: new Blob(["x"]) },
+  ];
+  const run = () => runBackup({ files, sink: createFsSink(tmp) });
+  const stats = await run();
+  expect(list(tmp)).toEqual([
+    "2023/08 August/IMG-20230812-WA0005.jpg", "2023/08 August/VID-20230813-WA0001.mp4",
+    "2023/09 September/Screenshot_20230901-080910.png", "_sicherung-index.json"]);
+  expect(stats).toMatchObject({ total: 3, copied: 3, dateWritten: 2, dateFolderOnly: 1, errors: 0 });
+  expect(exifDate(path.join(tmp, "2023/08 August/IMG-20230812-WA0005.jpg"))).toBe("2023:08:12 12:00:00");
+  expect(mvhd(path.join(tmp, "2023/08 August/VID-20230813-WA0001.mp4")).getTime()).toBe(ts(2023, 8, 13, 12) * 1000);
+  expect(fs.statSync(path.join(tmp, "2023/09 September/Screenshot_20230901-080910.png")).mtime.getTime()).toBe(ts(2023, 9, 1, 8, 9, 10) * 1000);
+  expect(await run()).toMatchObject({ copied: 0, skipped: 3 });
   fs.rmSync(tmp, { recursive: true });
 });

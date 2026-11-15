@@ -79,12 +79,13 @@ a { color: var(--accent); }
   </details>
 
   <section class="card" id="step1">
-    <h2><span class="num">1</span>Takeout-ZIP-Dateien auswählen</h2>
-    <p class="hint">Alle Teile des Exports auf einmal auswählen (takeout-…-001.zip, -002.zip, …).</p>
-    <div class="row"><button id="pickZips">ZIP-Dateien auswählen …</button></div>
-    <input type="file" id="zipInput" accept=".zip" multiple hidden>
-    <div class="drop" id="drop" hidden>… oder die ZIP-Dateien hierher ziehen</div>
-    <div id="manualZips" hidden><p class="hint">Falls sich kein Auswahlfenster öffnet: vollständigen Pfad eingeben (mehrere mit ; trennen)</p><input type="text" id="zipPath" placeholder="C:\Users\Name\Downloads\takeout-001.zip"></div>
+    <h2><span class="num">1</span>Dateien auswählen</h2>
+    <p class="hint"><strong>Takeout-Export:</strong> alle ZIP-Teile auf einmal auswählen (takeout-…-001.zip, -002.zip, …).<br>
+    <strong>Einzelne Fotos und Videos</strong> ohne ZIP gehen auch, beliebig viele auf einmal: Das Datum wird dann aus dem Dateinamen gelesen. Die Originale bleiben unverändert, die korrigierten Kopien landen im Zielordner.</p>
+    <div class="row"><button id="pickZips">Dateien auswählen …</button></div>
+    <input type="file" id="zipInput" accept=".zip,image/*,video/*" multiple hidden>
+    <div class="drop" id="drop" hidden>… oder die Dateien hierher ziehen</div>
+    <div id="manualZips" hidden><p class="hint">Falls sich kein Auswahlfenster öffnet: vollständigen Pfad eingeben (mehrere mit ; trennen)</p><input type="text" id="zipPath" placeholder="C:\Users\Name\Downloads\takeout-001.zip; C:\Bilder\IMG-20240115-WA0001.jpg"></div>
     <ul class="files" id="zipList"></ul>
   </section>
 
