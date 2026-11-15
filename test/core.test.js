@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import piexif from "piexifjs";
-import { runBackup } from "../src/core.js";
+import { runBackup, readLastBackup } from "../src/core.js";
 import { createFsSink } from "../src/sink-fs.js";
 import { dateFromName, toJsDate } from "../src/dates.js";
 import { parseMoov, Mp4Scanner } from "../src/media.js";
@@ -120,5 +120,26 @@ test("einzelne Dateien ohne ZIP: Datum aus dem Namen", async () => {
   expect(mvhd(path.join(tmp, "2023/08 August/VID-20230813-WA0001.mp4")).getTime()).toBe(ts(2023, 8, 13, 12) * 1000);
   expect(fs.statSync(path.join(tmp, "2023/09 September/Screenshot_20230901-080910.png")).mtime.getTime()).toBe(ts(2023, 9, 1, 8, 9, 10) * 1000);
   expect(await run()).toMatchObject({ copied: 0, skipped: 3 });
+  fs.rmSync(tmp, { recursive: true });
+});
+
+test("letzte Sicherung wird im Zielordner vermerkt", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gfb-"));
+  const sink = createFsSink(tmp);
+  expect(await readLastBackup(sink)).toBeNull();
+  const before = Date.now();
+  const stats = await runBackup({ files: [{ name: "IMG-20230812-WA0005.jpg", blob: new Blob([TINY_JPEG]) }], sink });
+  const at = await readLastBackup(sink);
+  expect(at).toBe(stats.finishedAt);
+  expect(new Date(at).getTime()).toBeGreaterThanOrEqual(before - 1000);
+  // abgebrochener Lauf ändert den Vermerk nicht
+  const ac = new AbortController(); ac.abort();
+  await runBackup({ files: [{ name: "IMG-20230813-WA0001.jpg", blob: new Blob([TINY_JPEG, "x"]) }], sink, signal: ac.signal });
+  expect(await readLastBackup(sink)).toBe(at);
+  // ältere Liste ohne Vermerk: Dateidatum der Liste
+  const file = path.join(tmp, "_sicherung-index.json");
+  fs.writeFileSync(file, JSON.stringify({ version: 1, files: {} }));
+  fs.utimesSync(file, new Date("2026-11-15T12:20:00Z"), new Date("2026-11-15T12:20:00Z"));
+  expect(await readLastBackup(sink)).toBe("2026-11-15T12:20:00.000Z");
   fs.rmSync(tmp, { recursive: true });
 });

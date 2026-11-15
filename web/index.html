@@ -45,6 +45,7 @@ details { margin-bottom: 14px; }
 details summary { cursor:pointer; font-weight:600; }
 details ol { padding-left: 22px; } details li { margin: 6px 0; }
 input[type=date] { font: inherit; padding: 7px 10px; border:1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); margin-left: 6px; }
+.last { background: var(--soft); border-radius: 8px; padding: 10px 14px; margin: 0 0 14px; font-weight: 600; }
 #presets button { padding: 6px 12px; font-size: .92rem; }
 input[type=text] { font: inherit; width:100%; padding: 8px 10px; border:1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); }
 a { color: var(--accent); }
@@ -55,6 +56,8 @@ a { color: var(--accent); }
 <main>
   <h1>Google Fotos sichern</h1>
   <p class="lead">Sortiert einen Google-Takeout-Export nach Jahr und Monat auf die Festplatte und trägt das richtige Aufnahmedatum ein. Die Fotos bleiben auf diesem Computer – es wird nichts ins Internet hochgeladen.</p>
+
+  <p id="lastTop" class="last" hidden></p>
 
   <div id="unsupported" class="notice err" hidden>
     <strong>Dieser Browser kann nicht direkt auf die Festplatte schreiben.</strong>
@@ -95,6 +98,7 @@ a { color: var(--accent); }
     <div class="row"><button id="pickDir">Zielordner auswählen …</button></div>
     <div id="manualDir" hidden><p class="hint">Falls sich kein Auswahlfenster öffnet: Pfad eingeben</p><input type="text" id="dirPath" placeholder="E:\Fotos"></div>
     <ul class="files" id="dirList"></ul>
+    <p id="lastDir" class="hint" hidden></p>
   </section>
 
   <section class="card" id="stepRange">
@@ -105,6 +109,7 @@ a { color: var(--accent); }
       <label>Bis <input type="date" id="to"></label>
     </div>
     <div class="row" id="presets">
+      <button data-preset="sinceLast" id="sinceLast" hidden>Seit letzter Sicherung</button>
       <button data-preset="lastMonth">Letzter Monat</button>
       <button data-preset="thisMonth">Dieser Monat</button>
       <button data-preset="sinceLastMonth">Seit letztem Monat</button>

@@ -34,6 +34,9 @@ export function createFsSink(root) {
         abort: async () => { await fh.close().catch(() => {}); await fs.rm(tmp, { force: true }); },
       };
     },
+    async modified(rel) {
+      try { return (await fs.stat(abs(rel))).mtime; } catch { return null; }
+    },
     async readText(rel) {
       try { return await fs.readFile(abs(rel), "utf8"); } catch { return null; }
     },

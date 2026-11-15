@@ -43,6 +43,9 @@ export function createBrowserSink(rootHandle) {
         abort: () => discard(rel, w),
       };
     },
+    async modified(rel) {
+      try { return new Date((await (await fileHandle(rel, false)).getFile()).lastModified); } catch { return null; }
+    },
     async readText(rel) {
       try { return await (await (await fileHandle(rel, false)).getFile()).text(); }
       catch (e) { if (e.name === "NotFoundError") return null; throw e; }

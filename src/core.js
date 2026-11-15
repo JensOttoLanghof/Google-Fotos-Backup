@@ -17,6 +17,19 @@ const MAX_JPEG_IN_MEMORY = 150 * 1024 * 1024;
 const extOf = (name) => (name.includes(".") ? name.split(".").pop().toLowerCase() : "");
 const sanitize = (name) => name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").replace(/[. ]+$/, "") || "_";
 
+/** Zeitpunkt der letzten Sicherung in diesen Zielordner (ISO-Text) oder null. */
+export async function readLastBackup(sink) {
+  try {
+    const text = await sink.readText(INDEX_FILE);
+    if (!text) return null;
+    const at = JSON.parse(text).lastBackup?.at;
+    if (at) return at;
+  } catch { /* unten: Dateidatum der Liste nehmen */ }
+  // Ältere Sicherungen haben den Zeitpunkt noch nicht vermerkt: Dateidatum der Liste nehmen.
+  const modified = await sink.modified(INDEX_FILE).catch(() => null);
+  return modified ? modified.toISOString() : null;
+}
+
 export function newStats() {
   return { total: 0, done: 0, bytesTotal: 0, bytesDone: 0, copied: 0, skipped: 0, dateWritten: 0,
     dateKept: 0, dateFolderOnly: 0, noDate: 0, outOfRange: 0, noDateSkipped: 0, errors: 0, current: "" };
@@ -99,13 +112,13 @@ export async function runBackup({ zips = [], files = [], sink, onProgress = () =
     onProgress(stats);
 
     // Index der bereits gesicherten Dateien (Inhalt -> Zielpfad)
-    let index = {};
+    let index = {}, lastBackup = null;
     try {
       const text = await sink.readText(INDEX_FILE);
-      if (text) index = JSON.parse(text).files || {};
+      if (text) { const saved = JSON.parse(text); index = saved.files || {}; lastBackup = saved.lastBackup || null; }
     } catch { log("warn", "Die Liste der bereits gesicherten Dateien war nicht lesbar und wird neu aufgebaut."); }
     const known = new Set(Object.values(index));
-    const saveIndex = () => sink.writeText(INDEX_FILE, JSON.stringify({ version: 1, files: index }));
+    const saveIndex = () => sink.writeText(INDEX_FILE, JSON.stringify({ version: 1, lastBackup, files: index }));
 
     let consecutiveErrors = 0, sinceSave = 0;
     for (const item of media) {
@@ -126,6 +139,8 @@ export async function runBackup({ zips = [], files = [], sink, onProgress = () =
       stats.bytesDone += item.size;
       if (++sinceSave >= 200) { sinceSave = 0; await saveIndex(); }
     }
+    // Zeitpunkt der letzten vollständig durchgelaufenen Sicherung merken
+    if (!signal?.aborted) { lastBackup = { at: new Date().toISOString(), copied: stats.copied }; stats.finishedAt = lastBackup.at; }
     await saveIndex();
     stats.current = "";
     onProgress(stats);

@@ -2,8 +2,10 @@
 // und erledigt die Dateiarbeit selbst. Mit --zips/--ziel auch ohne Oberfläche.
 import fs from "node:fs";
 import crypto from "node:crypto";
+import os from "node:os";
+import path from "node:path";
 import page from "./generated-page.js";
-import { runBackup, newStats } from "./core.js";
+import { runBackup, newStats, readLastBackup } from "./core.js";
 import { createFsSink } from "./sink-fs.js";
 
 // Pfade in Takeout-ZIPs und einzelne Fotos/Videos aufteilen.
@@ -48,6 +50,15 @@ const html = page.replace("window.__LOCAL_TOKEN__=null", () => `window.__LOCAL_T
 const job = { running: false, finished: false, aborted: false, error: null, stats: newStats(), log: [], abort: null };
 let lastSeen = Date.now(), seen = false;
 
+// Letzte Sicherung und Zielordner über Programmstarts hinweg merken.
+const memoryFile = path.join(os.homedir(), ".fotos-backup.json");
+let remembered = null;
+try { remembered = JSON.parse(fs.readFileSync(memoryFile, "utf8")); } catch { /* erste Benutzung */ }
+function remember(at, target) {
+  remembered = { at, target };
+  try { fs.writeFileSync(memoryFile, JSON.stringify(remembered)); } catch { /* nicht schlimm */ }
+}
+
 async function pick(kind) {
   if (process.platform !== "win32") throw new Error("Auswahlfenster gibt es nur unter Windows.");
   const common = "Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding=[Text.Encoding]::UTF8; $f = New-Object System.Windows.Forms.Form -Property @{TopMost=$true; ShowInTaskbar=$false; Opacity=0}; $f.Show(); $f.Activate();";
@@ -69,7 +80,7 @@ function start({ zips, target, range }) {
     ...input, sink, range, signal: job.abort.signal,
     log: (level, text) => job.log.push({ level, text }),
     onProgress: (s) => { job.stats = { ...s }; },
-  }).then((s) => { job.stats = { ...s }; job.aborted = job.abort.signal.aborted; })
+  }).then((s) => { job.stats = { ...s }; job.aborted = job.abort.signal.aborted; if (s.finishedAt) remember(s.finishedAt, target); })
     .catch((e) => { job.error = e.message || String(e); })
     .finally(() => { job.running = false; job.finished = true; });
 }
@@ -90,10 +101,11 @@ const server = Bun.serve({
     try {
       if (url.pathname === "/api/status") {
         const from = Number(url.searchParams.get("from")) || 0;
-        return json({ running: job.running, finished: job.finished, aborted: job.aborted, error: job.error, stats: job.stats, log: job.log.slice(from, from + 200) });
+        return json({ remembered, running: job.running, finished: job.finished, aborted: job.aborted, error: job.error, stats: job.stats, log: job.log.slice(from, from + 200) });
       }
       const body = req.method === "POST" ? await req.json() : {};
       if (url.pathname === "/api/pick") return json({ paths: await pick(body.kind) });
+      if (url.pathname === "/api/last") return json({ at: await readLastBackup(createFsSink(checkTarget(body.target))) });
       if (url.pathname === "/api/start") { start(body); return json({ ok: true }); }
       if (url.pathname === "/api/cancel") { job.abort?.abort(); return json({ ok: true }); }
       return new Response("", { status: 404 });

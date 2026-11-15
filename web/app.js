@@ -1,4 +1,4 @@
-import { runBackup } from "../src/core.js";
+import { runBackup, readLastBackup } from "../src/core.js";
 import { createBrowserSink } from "./sink-browser.js";
 
 const $ = (id) => document.getElementById(id);
@@ -7,7 +7,8 @@ const local = !!token;
 const nf = new Intl.NumberFormat("de-DE");
 const gb = (b) => (b >= 1e9 ? (b / 1e9).toLocaleString("de-DE", { maximumFractionDigits: 1 }) + " GB" : Math.round(b / 1e6) + " MB");
 
-const state = { zips: [], dir: null, running: false, logCount: 0 };
+const state = { zips: [], dir: null, running: false, logCount: 0, lastAny: null, lastDir: undefined };
+const when = (iso) => new Date(iso).toLocaleString("de-DE", { dateStyle: "long", timeStyle: "short" }) + " Uhr";
 let abort = null;
 
 const api = async (path, body) => {
@@ -44,6 +45,18 @@ function refresh() {
     : r.from && r.to ? `Gesichert werden nur Aufnahmen vom ${fmt(r.from)} bis ${fmt(r.to)}.`
     : r.from ? `Gesichert werden nur Aufnahmen ab dem ${fmt(r.from)}.` : `Gesichert werden nur Aufnahmen bis zum ${fmt(r.to)}.`;
   $("cancel").hidden = !state.running;
+  // Letzte Sicherung: allgemein gemerkt (oben) und für den gewählten Zielordner (Schritt 2)
+  $("lastTop").hidden = !state.lastAny;
+  if (state.lastAny) $("lastTop").textContent = `Letzte Sicherung: ${when(state.lastAny)}`;
+  $("lastDir").hidden = !state.dir || state.lastDir === undefined;
+  $("lastDir").textContent = state.lastDir ? `Letzte Sicherung in diesen Ordner: ${when(state.lastDir)}` : "In diesen Ordner wurde noch nicht gesichert.";
+  $("sinceLast").hidden = !(state.lastDir || state.lastAny);
+}
+function finished(stats) {
+  if (!stats?.finishedAt) return;
+  state.lastAny = state.lastDir = stats.finishedAt;
+  if (!local) { try { localStorage.setItem("letzteSicherung", stats.finishedAt); } catch { /* privater Modus */ } }
+  refresh();
 }
 const getRange = () => ({ from: $("from").value || null, to: $("to").value || null });
 const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -51,6 +64,7 @@ function setupRange() {
   const set = (a, b) => { $("from").value = a ? iso(a) : ""; $("to").value = b ? iso(b) : ""; refresh(); };
   const now = new Date(), y = now.getFullYear(), m = now.getMonth();
   const presets = {
+    sinceLast: () => set(new Date(state.lastDir || state.lastAny), null),
     lastMonth: () => set(new Date(y, m - 1, 1), new Date(y, m, 0)),
     thisMonth: () => set(new Date(y, m, 1), new Date(y, m + 1, 0)),
     sinceLastMonth: () => set(new Date(y, m - 1, 1), null),
@@ -122,6 +136,7 @@ function setupBrowser() {
     return;
   }
   $("webHint").hidden = false;
+  try { state.lastAny = localStorage.getItem("letzteSicherung"); } catch { /* privater Modus */ }
   $("drop").hidden = false;
   const addFiles = (files) => {
     for (const f of files) {
@@ -137,7 +152,11 @@ function setupBrowser() {
   document.addEventListener("dragleave", () => drop.classList.remove("over"));
   document.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); if (!state.running) addFiles(e.dataTransfer.files); });
   $("pickDir").onclick = async () => {
-    try { state.dir = await window.showDirectoryPicker({ mode: "readwrite", id: "fotos-backup" }); refresh(); }
+    try {
+      state.dir = await window.showDirectoryPicker({ mode: "readwrite", id: "fotos-backup" });
+      state.lastDir = undefined; refresh();
+      state.lastDir = await readLastBackup(createBrowserSink(state.dir)); refresh();
+    }
     catch (e) { if (e.name !== "AbortError") alert("Der Ordner konnte nicht geöffnet werden: " + e.message); }
   };
   $("start").onclick = async () => {
@@ -158,6 +177,7 @@ function setupBrowser() {
       });
       showProgress(stats);
       showResult(stats, null, abort.signal.aborted);
+      finished(stats);
     } catch (e) {
       showResult(null, e.message || String(e));
     } finally {
@@ -176,9 +196,15 @@ function setupLocal() {
     catch (e) { alert("Das Auswahlfenster konnte nicht geöffnet werden. Bitte den Pfad von Hand eingeben.\n\n" + e.message); return []; }
   };
   $("pickZips").onclick = async () => { const p = await pick("zips"); if (p.length) { state.zips = p; refresh(); } };
-  $("pickDir").onclick = async () => { const p = await pick("dir"); if (p.length) { state.dir = p[0]; refresh(); } };
+  const setDir = async (dir) => {
+    state.dir = dir; state.lastDir = undefined; refresh();
+    if (!dir) return;
+    try { state.lastDir = (await api("/api/last", { target: dir })).at; } catch { state.lastDir = undefined; }
+    refresh();
+  };
+  $("pickDir").onclick = async () => { const p = await pick("dir"); if (p.length) setDir(p[0]); };
   $("zipPath").onchange = (e) => { state.zips = e.target.value.split(";").map((s) => s.trim().replace(/^"|"$/g, "")).filter(Boolean); refresh(); };
-  $("dirPath").onchange = (e) => { state.dir = e.target.value.trim().replace(/^"|"$/g, "") || null; refresh(); };
+  $("dirPath").onchange = (e) => setDir(e.target.value.trim().replace(/^"|"$/g, "") || null);
   $("start").onclick = async () => {
     begin();
     try { await api("/api/start", { zips: state.zips, target: state.dir, range: getRange() }); }
@@ -188,11 +214,16 @@ function setupLocal() {
   const poll = async () => {
     try {
       const st = await api("/api/status?from=" + state.logCount);
+      if (st.remembered && !state.lastAny) {
+        // Beim Start: letzte Sicherung anzeigen und den Zielordner vom letzten Mal vorschlagen
+        state.lastAny = st.remembered.at;
+        if (!state.dir && st.remembered.target) setDir(st.remembered.target); else refresh();
+      }
       for (const l of st.log) addLog(l.level, l.text);
       state.logCount += st.log.length;
       if (st.running && !state.running) begin();
       if (st.running || st.finished) showProgress(st.stats);
-      if (state.running && !st.running && st.finished) { showResult(st.stats, st.error, st.aborted); end(); }
+      if (state.running && !st.running && st.finished) { showResult(st.stats, st.error, st.aborted); end(); if (!st.error) finished(st.stats); }
     } catch { /* Programm evtl. beendet */ }
     setTimeout(poll, 700);
   };
